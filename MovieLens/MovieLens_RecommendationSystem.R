@@ -41,6 +41,7 @@ if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.
 library(tidyverse)
 library(caret)
 library(data.table)
+library(Metrics)
 
 ### MovieLens 10M dataset:
 ### https://grouplens.org/datasets/movielens/10m/
@@ -279,3 +280,40 @@ rmses <- sapply(lambdas, function(l){
 
 qplot(lambdas, rmses)  
 
+min(rmses)
+
+lambda <- lambdas[which.min(rmses)]
+
+# Run Model with Min Lambda value
+mu <- mean(train_set$rating)
+
+# Movie effect (bi)
+b_i <- train_set %>% 
+  group_by(movieId) %>%
+  summarize(b_i = sum(rating - mu)/(n()+lambda))
+
+# User effect (bu)
+b_u <- train_set %>% 
+  left_join(b_i, by="movieId") %>%
+  group_by(userId) %>%
+  summarize(b_u = sum(rating - b_i - mu)/(n()+lambda))
+
+# Prediction
+y_hat_reg <- test_set %>% 
+  left_join(b_i, by = "movieId") %>%
+  left_join(b_u, by = "userId") %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  pull(pred)
+
+RMSE = RMSE(test_set$rating, y_hat_reg)
+RMSE
+MSE  = MSE(test_set$rating, y_hat_reg)
+MSE
+MAE  = MAE(test_set$rating, y_hat_reg)  
+MAE
+       
+# Update the result table
+result <- tibble(Method = "Model with bi and bu with tuned lambda", RMSE = RMSE(test_set$rating, y_hat_reg),MSE  = MSE(test_set$rating, y_hat_reg), MAE  = MAE(test_set$rating, y_hat_reg))
+
+# Regularization made a small improvement in RMSE.  
+result
