@@ -1,0 +1,331 @@
+---
+title: "MovieLens_RecommendationSystem"
+author: "Chhaya Mudgal"
+date: "12/2/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r global-options, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+# Introduction and Project Outline
+
+Recommender Systems are systems that give recommendations to the user based on 
+ratings available. It requires large amount of data set which is filtered, processed
+and trained. It looks at the different features available in the data look at the usage to make suggestions.
+There are different algorithms that can be used for building recommender Systems. 
+1) Collaborative Filtering, it is of 2 types a) Item Based b) User Based.
+2) Content Based 
+3) Classification Model.
+In each outcome there are different set of predictors. 
+
+Project Problem- This is a Movie Lens Project to build a movie recommender system using the dataset
+provided in the assignment. This will require to train the data with different algorithms 
+and compare the accuracy of the algorithm against the validation set. Following steps are taken to 
+build a recommender system.
+
+1) Load Data
+2) Explore and Visualize data
+3) Prepare Data.
+4) Evaluate Algorithms.
+5) Make Predictions and  Present Results.
+
+# Load Data
+## Load Data and Install Library Packages
+
+ Using the script provided in the course
+ Download data set
+ Install necessary library packages 
+ Create edx Data Set and Validation Set (final hold-out test set)
+
+
+###### Note: this process could take a couple of minutes
+
+```{r load}
+
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(caret)
+library(data.table)
+
+### MovieLens 10M dataset:
+### https://grouplens.org/datasets/movielens/10m/
+### http://files.grouplens.org/datasets/movielens/ml-10m.zip
+
+dl <- tempfile()
+download.file("http://files.grouplens.org/datasets/movielens/ml-10m.zip", dl)
+
+ratings <- fread(text = gsub("::", "\t", readLines(unzip(dl, "ml-10M100K/ratings.dat"))),
+                 col.names = c("userId", "movieId", "rating", "timestamp"))
+
+movies <- str_split_fixed(readLines(unzip(dl, "ml-10M100K/movies.dat")), "\\::", 3)
+colnames(movies) <- c("movieId", "title", "genres")
+
+##### if using R 3.6 or earlier:
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(levels(movieId))[movieId],
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+#### if using R 4.0 or later:
+movies <- as.data.frame(movies) %>% mutate(movieId = as.numeric(movieId),
+                                           title = as.character(title),
+                                           genres = as.character(genres))
+
+
+movielens <- left_join(ratings, movies, by = "movieId")
+
+### Validation set will be 10% of MovieLens data
+set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
+test_index <- createDataPartition(y = movielens$rating, times = 1, p = 0.1, list = FALSE)
+edx <- movielens[-test_index,]
+temp <- movielens[test_index,]
+
+### Make sure userId and movieId in validation set are also in edx set
+validation <- temp %>% 
+  semi_join(edx, by = "movieId") %>%
+  semi_join(edx, by = "userId")
+
+### Add rows removed from validation set back into edx set
+removed <- anti_join(temp, validation)
+edx <- rbind(edx, removed)
+
+rm(dl, ratings, movies, test_index, temp, movielens, removed)
+```
+
+# Prepare Data
+## Create training and test sets to assess the accuracy of the models.
+### 90 percent of edx data will be training and 10% will be test data set
+```{r prepare}
+set.seed(1, sample.kind="Rounding")
+test_index <- createDataPartition(y = edx$rating, times = 1, p = 0.1, list = FALSE)
+train_set <- edx[-test_index,]
+temp <- edx[test_index,]
+
+## Make sure userId and movieId in test set are also in train set
+test_set <- temp %>% 
+  semi_join(train_set, by = "movieId") %>%
+  semi_join(train_set, by = "userId")
+
+## Add rows removed from test set back into train set
+removed <- anti_join(temp, test_set)
+train_set <- rbind(train_set, removed)
+
+rm(test_index, temp, removed)
+```
+
+# Explore Data
+### In order to  build model we first need to look at the data.
+
+## Dimensions of the data set
+### Lets find out the total number of columns and rows in the edx data set.
+```{r explore_dim}
+
+dim(edx)
+```
+
+## Peek at the first 5 rows of the data
+### We peek at the dataset and find that the column names in the dataset are:
+### UserId, movieId, Rating, Timestamp, Title and Genre.
+```{r head}
+head(edx)
+```
+
+## Summarize edx data
+```{r summary}
+summary(edx)
+```
+
+## Genres
+### The data set contains 797 different combinations of genres. Here is the list of the first six.
+```{r genres}
+edx_genres <- edx %>% group_by(genres) %>% 
+  summarise(n=n()) %>%
+  head()
+edx_genres
+```  
+
+## Ratings
+```{r rating}
+edx_ratings <- edx %>% group_by(rating) %>% summarize(n=n())
+edx_ratings
+```
+
+# Visualize Data
+```{r visualize}
+edx %>% group_by(rating) %>% 
+  summarise(count=n()) %>%
+  ggplot(aes(x=rating, y=count)) + 
+  geom_line() +
+  geom_point() +
+  ggtitle("Rating Distribution", subtitle = "Higher ratings are prevalent.") + 
+  xlab("Rating") +
+  ylab("Count") 
+```
+# Evaluate Algorithms
+## Loss Function
+ It is a means to evaluate how specific algorithm behaves
+ for a given data.If predictions deviates too much from actual results, loss function 
+ R will be a very large number. Optimization function help to reduce the error in prediction. 
+
+## Define Mean Absolute Error (MAE)
+ Mean absolute error, is the average of sum of absolute differences between predictions and actual observations.
+```{r lossfunction}
+
+MAE <- function(true_ratings, predicted_ratings){
+  mean(abs(true_ratings - predicted_ratings))
+}
+```
+## Define Mean Squared Error (MSE)
+ Mean square error is the average of squared difference between predictions and actual observations.
+```{r mse}
+MSE <- function(true_ratings, predicted_ratings){
+  mean((true_ratings - predicted_ratings)^2)
+}
+```
+## Define Root Mean Squared Error (RMSE)
+```{r RMSE}
+RMSE <- function(true_ratings, predicted_ratings){
+  sqrt(mean((true_ratings - predicted_ratings)^2))
+}
+```
+## Simple Assumption Based Model
+ Model assumes same ratings for all users.
+ If we predict all unknown ratings with mu_i we obtain the following RMSE:
+
+
+```{r MODELS}
+mu_hat <- mean(train_set$rating)
+mu_hat
+
+naive_rmse <- RMSE(test_set$rating, mu_hat)
+naive_rmse
+
+rmse_results <- tibble(method = "Just the average", RMSE = naive_rmse)
+```
+## Including Movie Effect to the model
+ Augment our previous model by adding the term  b_i to represent average ranking for movie  
+
+```{r }
+mu <- mean(train_set$rating) 
+movie_avgs <- train_set %>% 
+  group_by(movieId) %>% 
+  summarize(b_i = mean(rating - mu))
+
+qplot(b_i, data = movie_avgs, bins = 10, color = I("black"))
+
+
+predicted_ratings <- mu + test_set %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  pull(b_i)
+RMSE(predicted_ratings, test_set$rating)
+```
+
+## Including  User Effect 
+```{r }
+train_set %>% 
+  group_by(userId) %>% 
+  summarize(b_u = mean(rating)) %>% 
+  filter(n()>=100) %>%
+  ggplot(aes(b_u)) + 
+  geom_histogram(bins = 30, color = "black")
+
+
+user_avgs <- train_set %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  group_by(userId) %>%
+  summarize(b_u = mean(rating - mu - b_i))
+
+
+predicted_ratings <- test_set %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  left_join(user_avgs, by='userId') %>%
+  mutate(pred = mu + b_i + b_u) %>%
+  pull(pred)
+RMSE(predicted_ratings, test_set$rating)
+```
+## Regularization 
+ A technique to solve over fitting.
+
+ User and Movie effects are regularized adding a penalty factor lambda, which is a tuning parameter. We define a ### number of values for lambda and use the regularization function to pick the best value that minimizes the RMSE.
+```{r }
+test_set %>% 
+  left_join(movie_avgs, by='movieId') %>%
+  mutate(residual = rating - (mu + b_i)) %>%
+  arrange(desc(abs(residual))) %>%  
+  slice(1:10) %>% 
+  pull(title)
+
+
+movie_titles <- train_set %>% 
+  select(movieId, title) %>%
+  distinct()
+
+
+movie_avgs %>% left_join(movie_titles, by="movieId") %>%
+  arrange(b_i) %>% 
+  slice(1:10)  %>% 
+  pull(title)
+
+
+train_set %>% count(movieId) %>% 
+  left_join(movie_avgs, by="movieId") %>%
+  left_join(movie_titles, by="movieId") %>%
+  arrange(desc(b_i)) %>% 
+  slice(1:10) %>% 
+  pull(n)
+
+
+train_set %>% count(movieId) %>% 
+  left_join(movie_avgs) %>%
+  left_join(movie_titles, by="movieId") %>%
+  arrange(b_i) %>% 
+  slice(1:10) %>% 
+  pull(n)
+```
+## Lambda - a tuning parameter
+```{r lambda}
+lambdas <- seq(0, 10, 0.25)
+
+rmses <- sapply(lambdas, function(l){
+
+  mu <- mean(train_set$rating)
+  
+  b_i <- train_set %>% 
+    group_by(movieId) %>%
+    summarize(b_i = sum(rating - mu)/(n()+l))
+  
+  b_u <- train_set %>% 
+    left_join(b_i, by="movieId") %>%
+    group_by(userId) %>%
+    summarize(b_u = sum(rating - b_i - mu)/(n()+l))
+
+  predicted_ratings <- 
+    test_set %>% 
+    left_join(b_i, by = "movieId") %>%
+    left_join(b_u, by = "userId") %>%
+    mutate(pred = mu + b_i + b_u) %>%
+    pull(pred)
+  
+    return(RMSE(predicted_ratings, test_set$rating))
+})
+```
+```{r resplot}
+
+qplot(lambdas, rmses)  
+min(rmses)
+```
+# Result and Conclusion
+ RMSE improved from initial estimation from mean
+
+ | Method                             | RMSE       |
+ |------------------------------------|------------|
+ | Average                            | 1.060054   |
+ | Movie effect                       | 0.9421695  |
+ | Movie and user effects             | 0.8646843  |
+ | Regularized movie and user effect  | 0.8641362  |
+
