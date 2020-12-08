@@ -1,0 +1,378 @@
+---
+title: "Orthopedic Patients Classification"
+author: "Chhaya Mudgal"
+date: "12/7/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r global-options, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+```
+## Introduction and Project Outline
+
+ This script is the Capstone Own Project for HarvardX Data Science Professional Certificate.
+ Dataset chosen to study classification of Orthopedic Patients based on Biomechanical Features.
+ Data has been downloaded from Kaggle database.In this project KNN (Nearest Neighbour Algorithm)
+ Supported Vector Machine (SVM) and Random Forest will be used for comparing accuracy of patients classification..
+ 
+ Machine Learning is being used in various medical fields to predict and classify diseases.
+ Orthopedic health condition of a pateint can be detected from the biomechanical features. 
+ Application of machine learning algorithms in medical science helps in classification. 
+ Different algorithms are applied to detect diseases and classify patients accordingly. 
+ In this project various machine learning algorithms are applied to find out which one works most 
+ accurately to detect and classify orthopedic patients. Algorithms compared for accuracy are
+ KNN,SVM and Random Forest.
+ Each of the patients in the dataset is represented by six biomechanical attributes derived from the shape  and orientation of pelvis and lumbar spine.
+
+
+ Why have i chose the data?
+ I have  chosen this dataset because:
+ It is freely avaliable online on Kaggle.
+ It is 'medium' sized. Not small or too big to be procecssed on my personal computer.
+ There are a reasonable number of predictor columns, and easy to understand.
+
+## Load Data
+### Step1: Load Library Packages
+```{r loadlib}
+#Step1: Load Library Packages
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
+if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
+if(!require(gmodels)) install.packages("gmodels", repos = "http://cran.us.r-project.org")
+if(!require(knn)) install.packages("knn", repos = "http://cran.us.r-project.org")
+
+library(gmodels)
+library(tidyverse)
+library(caret)
+library(data.table)
+library(corrplot)
+library(ggplot2)
+library(class)
+```
+### Step2: Load Data
+Data is downloaded from file stored in github repository
+Initial Step is to know the data set, hence the peek at the top 10 and last 10 lines for the dataset.
+Data set has 310 rows and 7 columns. Analyzing the structure of the dataset it is found that the six features have numeric values and the 7th column is the label that tells whether the patient falls under
+normal or abnormal category. This label is of type factor.
+
+```{r loadData}
+# Step2: Load Data
+# Data file is stored in github for easy
+# Getting data file from https://github.com/cmudgal/DataScienceHarvardX/tree/master/CapstoneProject/OrthoPatientData
+
+
+u="https://raw.githubusercontent.com/cmudgal/DataScienceHarvardX/master/CapstoneProject/OrthoPatientData/column_2C_weka.csv"
+ortho_data <- read.csv(u)#"Column_2C_weka.csv")
+
+
+# Peek at first 10 rows of data
+head(ortho_data, n=10)
+
+# Peek at last 10 rows of data
+tail(ortho_data, n=10)
+
+# Get number or rows and columns in data set
+# Data set has 310 rows and 7 columns
+dim(ortho_data)
+
+# Get summary of the data
+summary(ortho_data)
+
+
+# Gives the structure of data info
+# All non null data set with 7 variables
+# 6 are numeric features
+# class is the factor with levels "Abnormal" and "Normal"
+str(ortho_data)
+```
+## Explore Data
+ There are highly positive correlations between Pelvic Incidence and Sacral Slope
+ , also, between Pelvic Incidence and Lumbar Lordosis Angle as can be seen
+ by scatter plots below.
+ From the figure, as it seems Normal class values are smaller than Abnormal values; therefore narrowed with selecting some correlated features. Lets look at correlation matrix of the select features: pelvic_raduis, pelvic_incidence and lumbar_lordosis_angle.
+ 
+ There are 210 patients in Abnormal and 100 in Normal category 
+```{r explore}
+# Explore Data for Orthopedic Patients
+plot(ortho_data$class, freq=TRUE, col="red", border="white", 
+     main="Distribution of patients", xlab="Class", ylab="Count")
+
+# 
+# Divison of 'class' attribute of the patients
+table(ortho_data$class) 
+
+# Percentual division of patients using the  `class` attribute
+round(prop.table(table(ortho_data$class)) * 100, digits = 1)
+
+
+# Correlation plot
+
+com = ortho_data[,1:6]
+cc = cor(com, method = "spearman")
+corrplot(cc, tl.col = "black", order = "hclust", hclust.method = "average", addrect = 4, tl.cex = 0.7)
+
+# Scatter plot for pelvic_radius and sacral_slope for distribution of patients
+ggplot(ortho_data, aes(x = pelvic_radius, y = sacral_slope)) +
+  geom_point(aes(color = factor(class)))
+
+# Scatter plot for pelvic_incidence and sacral_slope for distribution of patients
+
+ggplot(ortho_data, aes(x = pelvic_incidence, y = sacral_slope)) +
+  geom_point(aes(color = factor(class)))
+
+# Scatter plot for pelvic_incidence and Lumbar Lordosis Angle for distribution of patients
+
+ggplot(ortho_data, aes(x = pelvic_incidence, y = lumbar_lordosis_angle)) +
+  geom_point(aes(color = factor(class)))
+
+#heat map
+palette = colorRampPalette(c("green", "white", "red")) (20)
+heatmap(x = cc, col = palette, symm = TRUE)
+```
+
+## Prepare Data
+
+This step involves, cleaning, normalizing and splicing of data.
+The Biomechanical Orthopedic data set will be used for classification, which is an example of predictive modeling. 
+The last attribute of the data set, class, will be the target variable or the variable that I want to predict. 
+ 1) Check of null values 2) normalize data 3) Split data in test and train data sets
+ 
+Normalize data: Looking at the summary output it is seen that all the features are not in consistent range.Look at the minimum and maximum values of all the (numerical) attributes. If one attribute has a wide range of values,need to normalize the dataset, because this means that the distance will be dominated by this feature. In the current dataset it is degree_spondylolosthesis that has wide range from -11.058 to 418.543
+
+In order to assess the performance of the mode data set is divided into two parts: a training set and a test set.
+The first is used to train the system, while the second is used to evaluate the learned or trained system. 
+70% of the original data set is as the training set, while the 10% that remains will compose the test set.
+
+```{r prepareData}
+# check if isna
+
+data_na<-apply(ortho_data, 2, function(x) any(is.na(x)))
+data_na
+# There is no na in the dataset
+
+# Build normalize function
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x))) }
+
+# Apply normalize function to the orthopedic data set
+
+ortho_data.norm<-as.data.frame(lapply(ortho_data[,c(1,2,3,4,5,6)], normalize))
+
+# Summary for normalized data
+summary(ortho_data.norm)
+
+# Split Data into Training and Test Sets
+
+# To make training and test sets,  set a seed. This is a number of R’s random number generator. 
+# The major advantage of setting a seed is that it gives same sequence of random numbers.
+set.seed(123)
+ortho_data.ind <- sample(1:nrow(ortho_data.norm),size=nrow(ortho_data.norm)*0.7,replace = FALSE) #random selection of 70% data
+
+ortho_data.train <- ortho_data.norm[ortho_data.ind,] # 70% training data
+
+# Inspect training set
+head(ortho_data.train)
+
+ortho_data.test <- ortho_data.norm[-ortho_data.ind,] # remaining 30% test data
+
+# Inspect test set
+head(ortho_data.test)
+
+# Compose `class` training labels
+ortho_data.trainLabels <- ortho_data[ortho_data.ind,7]
+
+# Inspect result
+#print(ortho_data.trainLabels)
+
+# Compose `class` test labels
+ortho_data.testLabels <- ortho_data[-ortho_data.ind, 7]
+
+# Inspect result
+#print(ortho_data.testLabels)
+```
+## Models/ Algorithms and Evaluation
+
+### KNN K Nearest Neighbour Algorithm
+
+Build Classifier to find the k nearest neighbour for the training set
+using the knn() function, which uses the Euclidian distance measure to find the k-nearest 
+neighbours to the new instance.
+KNN model is done in 2 ways using caret and class package.
+In Class package, We have to decide on the number of neighbors (k). There are several rules of thumb, one being the square root of the number of observations in the training set. In this case, we select 16 as the number of neighbors, which is approximately the square root of our sample size N = 217.Infact the model was run for both k=16 and K=17.
+
+In caret package, the function picks the optimal number of neighbors (k) for you.
+```{r knn}
+# To find the k parameter for the knn function
+nr<-NROW(ortho_data.trainLabels) 
+# sqrt of 217 is 14.7
+sqrt(nr)
+
+
+
+dim(ortho_data.trainLabels)
+dim(ortho_data.train)
+ortho_data.knn.15 <- knn(train=ortho_data.train, test=ortho_data.test, cl=ortho_data.trainLabels, k=14)
+ortho_data.knn.16 <- knn(train=ortho_data.train, test=ortho_data.test, cl=ortho_data.trainLabels, k=15)
+
+# Inspect
+ortho_data.knn.15
+
+# ortho_data.knn.15 stores the knn() function that takes as arguments 
+# the training set, the test set, the train labels and the amount of 
+# neighbours to find with this algorithm. The result of this function 
+# is a factor vector with the predicted classes for each row of the test data.
+
+# Note that the test labels will be used to see if the model is good at prediction.
+
+# Model Evaluation
+# An essential next step in machine learning is the evaluation 
+# of the model’s performance. Analyze the degree of correctness of the model’s predictions.
+
+# Put `ortho_data.testLabels` in a data frame
+ortho_dataTestLabels <- data.frame(ortho_data.testLabels)
+
+# Merge `ortho_data.knn.15` and `ortho_data.testLabels` 
+merge <- data.frame(ortho_data.knn.16, ortho_data.testLabels)
+
+
+
+# Inspect `merge` 
+#merge
+
+
+CrossTable(x = ortho_data.testLabels, y = ortho_data.knn.16, prop.chisq=FALSE)
+
+
+
+##create confusion matrix
+tab <- table(ortho_data.knn.16, ortho_data.testLabels)
+
+##this function divides the correct predictions by total number of predictions that tell us how accurate the model is.
+
+accuracy <- function(x){sum(diag(x)/(sum(rowSums(x)))) * 100}
+accuracy(tab)
+
+#Calculate the proportion of correct classification for k = 15,16
+ACC.15 <- 100 * sum( ortho_data.testLabels == ortho_data.knn.15)/NROW( ortho_data.testLabels)
+ACC.16 <- 100 * sum( ortho_data.testLabels == ortho_data.knn.16)/NROW( ortho_data.testLabels)
+ACC.15
+ACC.16
+
+
+# confusion Matrix
+confusionMatrix(table(ortho_data.knn.16, ortho_data.testLabels))
+
+
+
+################### Using Caret Package
+# Create index to split based on labels  
+index <- createDataPartition(ortho_data$class, p=0.7, list=FALSE)
+# Subset training set with index
+ortho.training <- ortho_data[index,]
+
+# Subset test set with index
+ortho.test <- ortho_data[-index,]
+
+# Overview of algos supported by caret
+#names(getModelInfo())
+
+# Train a model
+model_knn <- train(ortho.training[, 1:6], ortho.training[, 7], method='knn')
+
+# Predict the labels of the test set
+predictions_knn<-predict(object=model_knn,ortho.test[,1:6])
+
+# Evaluate the predictions
+table(predictions_knn)
+
+# Confusion matrix kNN
+confusionMatrix(predictions_knn,ortho.test[,7])
+
+```
+
+### SVM Linear (Support Vector Machine)
+
+support vector machines are supervised learning models with associated learning algorithms that analyze data used for classification and regression analysis. They are mostly used in classification problems.
+```{r nb}
+# Train a model
+
+model_svm <- train(ortho.training[, 1:6], ortho.training[, 7],method='svmLinear',trControl=trainControl(method='cv',number=10))
+
+
+# Predict the labels of the test set
+predictions_svm<-predict(object=model_svm,ortho.test[,1:6])
+
+# Evaluate the predictions
+table(predictions_svm)
+
+# Confusion matrix SVM
+confusionMatrix(predictions_svm,ortho.test[,7])
+
+```
+
+### Random Forest Algorithm
+
+Random Forest is one such very powerful ensembling machine learning algorithm. It works by creating multiple decision trees and  combining the output generated by each of the decision trees. Decision tree is a classification model which works on the concept of information gain at every node. 
+```{r randomforest}
+
+# Train a model
+model_rf <- train(ortho.training[, 1:6], ortho.training[, 7], method='rf')
+
+# Predict the labels of the test set
+predictions_rf<-predict(object=model_rf,ortho.test[,1:6])
+
+# Evaluate the predictions
+table(predictions_rf)
+
+
+# Confusion matrix Random Forest
+confusionMatrix(predictions_rf,ortho.test[,7])
+
+
+```
+## Analysis and Conclusion
+After comparing KNN, Supported Vector Machine (SVM) and Random Forest Algorithms the prediction for this data set is
+highest for KNN algorithm. The results of the Cross Table indicate that our model did not predict mother’s job very well. To read the Cross Table, we begin by examining the top-left to bottom-right diagonal of the matrix. The diagonal of the matrix represents the number of cases that were correctly classified for each category. If the model correctly classified all cases, the matrix would have zeros everywhere but the diagonal. In this case, we see that the numbers are quite high in the off-diagonals, indicating that our model did not successfully classify our outcome based on our predictors.
+
+
+Confusion matrix or error matrix is used for summarizing the performance of a classification algorithm.
+Calculating a confusion matrix gives an idea of where the classification model is right and what types of errors it is making.
+A confusion matrix is used to check the performance of a classification model on a set of test data for which the true values are known. It can be seen that random forest performed with 79%, knn with 80% accuracy and  svn linear with 82% accuracy.
+
+```{r Analysis}
+method <- c('kNN','svm','random forest')
+accuracy <- c(0.8065, 0.828, 0.79577)
+df <- data.frame(method,accuracy)
+ggplot(data=df, aes(x=method, y=accuracy)) +
+  geom_bar(stat="identity", fill="steelblue")+
+  geom_text(aes(label=accuracy), vjust=-0.3, size=3.5)+
+  theme_minimal()
+
+
+```
+
+## Next Steps.. Optimization:
+
+For kNN algorithm, the tuning parameters are ‘k’ value and number of ’features/attributes selection.
+Optimum ‘k’ value can be found using graph below. It was found that max accuracy in knn is at k=15.
+```{r optimization}
+# Optimization
+i=1
+k.optm=1
+for (i in 1:28){
+  knn.mod <- knn(train=ortho_data.train, test=ortho_data.test, cl=ortho_data.trainLabels, k=i)
+  k.optm[i] <- 100 * sum( ortho_data.testLabels == knn.mod)/NROW( ortho_data.testLabels)
+  k=i
+  cat(k,'=',k.optm[i],'
+')
+}
+
+#Accuracy plot
+plot(k.optm, type="b", xlab="K- Value",ylab="Accuracy level")
+```
