@@ -360,7 +360,8 @@ ggplot(data=df, aes(x=method, y=accuracy)) +
 ## Next Steps.. Optimization:
 
 For kNN algorithm, the tuning parameters are ‘k’ value and number of ’features/attributes selection.
-Optimum ‘k’ value can be found using graph below. It was found that max accuracy in knn is at k=15.
+Optimum ‘k’ value can be found using graph below. It was found that max accuracy in knn is at k=21. It increases to about
+82%
 ```{r optimization}
 # Optimization
 i=1
